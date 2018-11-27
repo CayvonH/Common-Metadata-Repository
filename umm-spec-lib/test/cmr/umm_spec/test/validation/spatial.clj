@@ -1,12 +1,38 @@
 (ns cmr.umm-spec.test.validation.spatial
   "This has tests for UMM validations."
-  (:require [clojure.test :refer :all]
-            [cmr.umm-spec.validation.umm-spec-validation-core :as v]
-            [cmr.umm-spec.models.umm-collection-models :as coll]
-            [cmr.umm-spec.test.validation.umm-spec-validation-test-helpers :as helpers]
-            [cmr.spatial.mbr :as m]
-            [cmr.spatial.point :as p]
-            [cmr.common.services.errors :as e]))
+  (:require
+   [clojure.string :as string]
+   [clojure.test :refer :all]
+   [cmr.common.services.errors :as e]
+   [cmr.common.util :as util :refer [are3]]
+   [cmr.spatial.mbr :as m]
+   [cmr.spatial.point :as p]
+   [cmr.umm-spec.models.umm-collection-models :as coll]
+   [cmr.umm-spec.test.validation.umm-spec-validation-test-helpers :as helpers]
+   [cmr.umm-spec.validation.umm-spec-validation-core :as v]))
+
+(defn- convert-error-to-message-and-sets
+  "Convert message to set and remaining message after removing sets. Used to compare
+  Error messages containing sets to avoid comparing order of items.
+  Example: \"This error message contains sets [v1 v2 v3] [v4 v5 v6]\" ->
+  [#{#{v1 v2 v3} #{v4 v5 v6}} \"This error message contains vectors \"]"
+  [message]
+  (let [vecs (re-seq #"\[.*?\]" message)
+        remaining-message (string/replace message #"\[.*?\]" "")]
+    [(set (map #(set (read-string %)) vecs))
+     remaining-message]))
+
+(defn- assert-enum-error-matches
+  "Compare enum error message."
+  [collection expected-error-message expected-error-path]
+  (let [validation (v/validate-collection collection)
+        expected (convert-error-to-message-and-sets expected-error-message)
+        actual-error-message (e/errors->message validation)
+        actual-error-path (:path (first validation))
+        actual (convert-error-to-message-and-sets actual-error-message)]
+    (is (= (count expected-error-message) (count actual-error-message)))
+    (is (= expected actual))
+    (is (= expected-error-path actual-error-path))))
 
 (defn- umm-spec-point
   "Returns a point for a umm-spec model."
@@ -61,3 +87,26 @@
    [:SpatialExtent]
    [(str "Orbit Parameters must be defined for a collection "
          "whose granule spatial representation is ORBIT.")])))
+
+(deftest coordinate-systems
+  (testing "Valid coordinate systems"
+    (doseq [coordinate-system ["GEODETIC" "CARTESIAN"]]
+      (helpers/assert-valid (coll-with-geometry {:CoordinateSystem coordinate-system} "NO_SPATIAL"))))
+  (testing "Invalid coordinate system"
+    (assert-enum-error-matches
+     (coll-with-geometry {:CoordinateSystem "INVALID_COORDINATE_SYSTEM"} "NO_SPATIAL")
+     "Value (\"INVALID_COORDINATE_SYSTEM\") not found in enum (possible values: [\"GEODETIC\" \"CARTESIAN\"])"
+     [:SpatialExtent :HorizontalSpatialDomain :Geometry :CoordinateSystem])))
+
+(deftest granule-spatial-representations
+  (testing "Valid granule spatial representations"
+    (doseq [granule-spatial-representation ["GEODETIC" "CARTESIAN" "ORBIT" "NO_SPATIAL"]]
+      (helpers/assert-valid (coll/map->UMM-C {:SpatialExtent
+                                              {:GranuleSpatialRepresentation granule-spatial-representation
+                                               :OrbitParameters {}
+                                               :HorizontalSpatialDomain {:Geometry {:CoordinateSystem "GEODETIC"}}}}))))
+  (testing "Invalid granule spatial representation"
+    (assert-enum-error-matches
+     (coll-with-geometry {:CoordinateSystem "CARTESIAN"} "INVALID_GRANULE_SPATIAL_REPRESENTATION")
+     "Value (\"INVALID_GRANULE_SPATIAL_REPRESENTATION\") not found in enum (possible values: [\"ORBIT\" \"NO_SPATIAL\" \"CARTESIAN\" \"GEODETIC\"])"
+     [:SpatialExtent])))
