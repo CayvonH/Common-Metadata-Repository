@@ -15,7 +15,7 @@
   "Convert message to set and remaining message after removing sets. Used to compare
   Error messages containing sets to avoid comparing order of items.
   Example: \"This error message contains sets [v1 v2 v3] [v4 v5 v6]\" ->
-  [#{#{v1 v2 v3} #{v4 v5 v6}} \"This error message contains vectors \"]"
+  [#{#{v1 v2 v3} #{v4 v5 v6}} \"This error message contains sets \"]"
   [message]
   (let [vecs (re-seq #"\[.*?\]" message)
         remaining-message (string/replace message #"\[.*?\]" "")]
