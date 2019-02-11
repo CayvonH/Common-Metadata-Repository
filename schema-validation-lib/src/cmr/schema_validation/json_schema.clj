@@ -19,7 +19,14 @@
   "Takes JSON as a string and returns a org.json.JSONObject. or org.json.JSONArray
   Throws a JSONException if the provided JSON is not valid JSON."
   [^String json-string]
-  (.nextValue (JSONTokener. json-string)))
+  (let [tokener (->> json-string
+                     string/trim
+                     string/trim-newline
+                     (JSONTokener.))
+        json-type (.nextValue tokener)]
+    (if (.more tokener)
+      (throw (.syntaxError "Trailing characters are not permitted."))
+      json-type)))
 
 (defn json-string->json-schema
   "Convert a string to org.everit.json.schema.Schema object.
