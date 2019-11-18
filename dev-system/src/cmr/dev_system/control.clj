@@ -107,7 +107,6 @@
     ;; Calls reset on all other systems internally
     (POST "/reset" []
       (debug "dev system /reset")
-      (redis/reset)
       (doseq [[service-name reset-fn] service-reset-fns
               ;; Only call reset on applications which are deployed to the current system
               :when (get-in system [:apps service-name])]
