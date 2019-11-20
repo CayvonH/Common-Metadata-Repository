@@ -37,7 +37,10 @@
   cache/CmrCache
   (get-keys
     [this]
-    (map deserialize (wcar* (carmine/keys "*"))))
+    (vec
+     (filter (fn [key]
+               (= 1 (wcar* (carmine/exists (serialize key)))))
+             keys-to-track)))
 
   (get-value
     [this key]
@@ -73,7 +76,10 @@
   "Creates an instance of the redis cache.
   options:
       :keys-to-track
-       The keys that are to be managed by this cache.
+       The keys that are to be managed by this cache. Do note this is not a required
+       key however if the desired behavior is to use the CMR caches endpoints to
+       view and reset this cache it should be provided. Otherwise you must query redis
+       directly to view and resest these keys.
       :ttl
        The time to live for the key in seconds. If nil assumes key will never expire. NOTE:
        The key is not guaranteed to stay in the cache for up to ttl. If the
