@@ -186,8 +186,7 @@
   cmr.common_app.services.search.query_model.NestedCondition
   (condition->elastic
    [{:keys [path condition]} concept-type]
-   {:nested {:path path
-             :filter (condition->elastic condition concept-type)}})
+   {:nested (merge {:path path} (condition->elastic condition concept-type))})
 
   cmr.common_app.services.search.query_model.TextCondition
   (condition->elastic
@@ -206,7 +205,7 @@
                  (field->lowercase-field concept-type field))
          value (if case-sensitive? value (str/lower-case value))]
      (if pattern?
-       {:query {:wildcard {field value}}}
+       {:wildcard {field value}}
        {:term {field value}})))
 
   cmr.common_app.services.search.query_model.StringsCondition
