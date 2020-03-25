@@ -2,6 +2,7 @@
   "Contains converters for spatial condition into the simpler executable conditions"
   (:require
    [clojure.string :as str]
+   [cmr.common.services.errors :as errors]
    [cmr.common-app.services.search.complex-to-simple :as c2s]
    [cmr.common-app.services.search.elastic-search-index :as idx]
    [cmr.common-app.services.search.group-query-conditions :as gc]
@@ -11,15 +12,14 @@
    [cmr.spatial.derived :as d]
    [cmr.spatial.mbr :as mbr]
    [cmr.spatial.relations :as sr]
-   [cmr.spatial.serialize :as srl]))
-
-(defn- shape->script-cond
-  [shape]
-  (let [ords-info-map (-> (srl/shapes->ords-info-map [shape])
-                          (update-in [:ords-info] #(str/join "," %))
-                          (update-in [:ords] #(str/join "," %)))]
-    (qm/map->ScriptCondition {:name "spatial"
-                              :params ords-info-map})))
+   [cmr.spatial.serialize :as srl])
+  (:import
+   cmr.spatial.cartesian_ring.CartesianRing
+   cmr.spatial.geodetic_ring.GeodeticRing
+   cmr.spatial.line_string.LineString
+   cmr.spatial.mbr.Mbr
+   cmr.spatial.point.Point
+   cmr.spatial.polygon.Polygon))
 
 (defn- br->cond
   [prefix {:keys [west north east south] :as br}]
@@ -188,17 +188,59 @@
 
              (keys crossings-map))))))
 
+(defn- point->elastic-point
+  [^Point point]
+  [(.lon point) (.lat point)])
+
+(defmulti shape->geo-condition class)
+
+(defmethod shape->geo-condition Point
+  [^Point point]
+  (qm/map->GeoshapeCondition
+   {:type :point
+    :field :geometries
+    :coordinates (point->elastic-point point)
+    :relation :intersects}))
+
+(defmethod shape->geo-condition Polygon
+  [^Polygon polygon]
+  (qm/map->GeoshapeCondition
+   {:type :polygon
+    :field :geometries
+    :coordinates [(mapv point->elastic-point (:points (first (:rings polygon))))]
+    :relation :intersects}))
+
+(defmethod shape->geo-condition Mbr
+  [^Mbr mbr]
+  (qm/map->GeoshapeCondition
+   {:type :envelope
+    :field :geometries
+    :coordinates [[(.west mbr) (.north mbr)] [(.east mbr) (.south mbr)]]
+    :relation :intersects}))
+
+(defmethod shape->geo-condition LineString
+  [^LineString line-string]
+  (qm/map->GeoshapeCondition
+   {:type :linestring
+    :field :geometries
+    :coordinates (mapv point->elastic-point (:points line-string))
+    :relation :intersects}))
+
+(defmethod shape->geo-condition :default
+  [unknown]
+  (errors/internal-error! (str "Do not know how to create geo condition for geometry [" (type unknown) "]")))
+
 (extend-protocol c2s/ComplexQueryToSimple
   cmr.search.models.query.SpatialCondition
   (c2s/reduce-query-condition
     [{:keys [shape]} context]
-    (let [shape (d/calculate-derived shape)
+    (let [spatial-geo-cond (shape->geo-condition shape)
+          shape (d/calculate-derived shape)
           orbital-cond (when (= :granule (:query-concept-type context))
                          (orbital-condition context shape))
           mbr-cond (br->cond "mbr" (srl/shape->mbr shape))
           lr-cond (br->cond "lr" (srl/shape->lr shape))
-          spatial-script (shape->script-cond shape)
-          spatial-cond (gc/and-conds [mbr-cond (gc/or-conds [lr-cond spatial-script])])]
+          spatial-cond (gc/and-conds [mbr-cond (gc/or-conds [lr-cond spatial-geo-cond])])]
       (if orbital-cond
         (gc/or-conds [spatial-cond orbital-cond])
         spatial-cond))))

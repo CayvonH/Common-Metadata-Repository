@@ -131,6 +131,20 @@
    ;; Parameter map of names to values
    params])
 
+;; GeoshapeCondition allows for filtering against fields indexed as geo_shape
+(defrecord GeoshapeCondition
+  [
+   ;; The geo-field being searched
+   field
+
+   ;; The type of shape being used to search (envelope, point, polygon, linestring)
+   type
+
+   ;; The coordinates for the search
+   coordinates
+
+   ;; The spatial relation of the search (intersects, disjoint, within)
+   relation])
 
 ;; ExistCondition represents the specified field must have value, i.e. filed is not null
 (defrecord ExistCondition
@@ -418,6 +432,7 @@
   NegatedCondition
   BooleanCondition
   ScriptCondition
+  GeoshapeCondition
   ExistCondition
   MissingCondition
   DateValueCondition

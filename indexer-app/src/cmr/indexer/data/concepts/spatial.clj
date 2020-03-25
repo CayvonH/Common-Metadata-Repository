@@ -2,6 +2,7 @@
   "Contains functions to convert spatial geometry into indexed attributes."
   (:require
    [camel-snake-kebab.core :as csk]
+   [cmr.common.services.errors :as errors]
    [cmr.spatial.derived :as d]
    [cmr.spatial.mbr :as mbr]
    [cmr.spatial.polygon :as poly]
@@ -11,7 +12,14 @@
    [cmr.umm.umm-spatial :as umm-s])
   ;; Must be required for derived calculations
   (:require
-   cmr.spatial.geodetic-ring))
+   cmr.spatial.geodetic-ring)
+  (:import
+   cmr.spatial.cartesian_ring.CartesianRing
+   cmr.spatial.geodetic_ring.GeodeticRing
+   cmr.spatial.line_string.LineString
+   cmr.spatial.mbr.Mbr
+   cmr.spatial.point.Point
+   cmr.spatial.polygon.Polygon))
 
 (defn mbr->elastic-attribs
   [prefix {:keys [west north east south]} crosses-antimeridian?]
@@ -63,17 +71,47 @@
            [(poly/polygon :geodetic [(rr/ords->ring :geodetic ords)])
             equiv]))))
 
+(defn- point->elastic-point
+  [^Point point]
+  [(.lon point) (.lat point)])
+
+(defmulti shape->elastic-doc class)
+
+(defmethod shape->elastic-doc Point
+  [^Point point]
+  {:type :point
+   :coordinates (point->elastic-point point)})
+
+(defmethod shape->elastic-doc Polygon
+  [^Polygon polygon]
+  {:type :polygon
+   :orientation :counterclockwise
+   :coordinates [(mapv point->elastic-point (:points (first (:rings polygon))))]})
+
+(defmethod shape->elastic-doc Mbr
+  [^Mbr mbr]
+  {:type :envelope
+   :coordinates [[(.west mbr) (.north mbr)] [(.east mbr) (.south mbr)]]})
+
+(defmethod shape->elastic-doc LineString
+  [^LineString line-string]
+  {:type :linestring
+   :coordinates (mapv point->elastic-point (:points line-string))})
+
+(defmethod shape->elastic-doc :default
+  [unknown]
+  (errors/internal-error! (str "Do not know how to index geometry [" (type unknown) "]")))
+
 (defn shapes->elastic-doc
   "Converts a spatial shapes into the nested elastic attributes"
   [shapes coordinate-system]
-  (let [shapes (->> shapes
-                    (mapv (partial umm-s/set-coordinate-system coordinate-system))
-                    (mapv #(get special-cases % %))
-                    (mapv d/calculate-derived))
-        ords-info-map (srl/shapes->ords-info-map shapes)
-        lrs (seq (remove nil? (mapv srl/shape->lr shapes)))
+  (let [derived-shapes (->> shapes
+                            (mapv (partial umm-s/set-coordinate-system coordinate-system))
+                            (mapv #(get special-cases % %))
+                            (mapv d/calculate-derived))
+        lrs (seq (remove nil? (mapv srl/shape->lr derived-shapes)))
         ;; union mbrs to get one covering the whole area
-        mbr (reduce mbr/union (mapv srl/shape->mbr shapes))
+        mbr (reduce mbr/union (mapv srl/shape->mbr derived-shapes))
         ;; Choose the largest lr
         lr (when lrs
              (->> lrs
@@ -82,8 +120,8 @@
                   first))
         lr-info-map (when lr
                       (mbr->elastic-attribs
-                        "lr"  (mbr/round-to-float-map lr false) (mbr/crosses-antimeridian? lr)))]  
-    (merge ords-info-map
+                        "lr"  (mbr/round-to-float-map lr false) (mbr/crosses-antimeridian? lr)))]
+    (merge {:geometries (mapv shape->elastic-doc shapes)}
            ;; The bounding rectangles are converted from double to float for storage in Elasticsearch
            ;; This takes up less space in the fielddata cache when using a numeric range filter with
            ;; fielddata execution mode. During conversion from double to float any loss in precision
@@ -96,6 +134,7 @@
            (mbr->elastic-attribs
              "mbr" (mbr/round-to-float-map mbr true) (mbr/crosses-antimeridian? mbr))
            lr-info-map)))
+
 
 (defn get-collection-coordinate-system
   "Returns the coordinate system in lowercase keyword for the given collection"

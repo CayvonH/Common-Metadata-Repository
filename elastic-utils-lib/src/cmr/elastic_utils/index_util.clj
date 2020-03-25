@@ -45,6 +45,9 @@
 (def bool-field-mapping
   {:type "boolean"})
 
+(def geo-shape-mapping
+  {:type "geo_shape"})
+
 (defn stored
   "modifies a mapping to indicate that it should be stored"
   [field-mapping]

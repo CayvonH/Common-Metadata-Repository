@@ -237,6 +237,18 @@
              :params params
              :lang "native"}})
 
+  cmr.common_app.services.search.query_model.GeoshapeCondition
+  (condition->elastic
+   [{:keys [field type coordinates relation]} concept-type]
+   {:bool
+    {:filter
+     {:geo_shape
+      {field
+       {:shape
+        {:type type
+         :coordinates coordinates}
+        :relation relation}}}}})
+
   cmr.common_app.services.search.query_model.ExistCondition
   (condition->elastic
    [{:keys [field]} concept-type]
