@@ -207,7 +207,8 @@
   (qm/map->GeoshapeCondition
    {:type :polygon
     :field :geometries
-    :coordinates [(mapv point->elastic-point (:points (first (:rings polygon))))]
+    :coordinates (into [] (for [ring (:rings polygon)]
+                            (mapv point->elastic-point (:points ring))))
     :relation :intersects}))
 
 (defmethod shape->geo-condition Mbr
@@ -241,6 +242,7 @@
           mbr-cond (br->cond "mbr" (srl/shape->mbr shape))
           lr-cond (br->cond "lr" (srl/shape->lr shape))
           spatial-cond (gc/and-conds [mbr-cond (gc/or-conds [lr-cond spatial-geo-cond])])]
+          ;spatial-cond spatial-geo-cond]
       (if orbital-cond
         (gc/or-conds [spatial-cond orbital-cond])
         spatial-cond))))

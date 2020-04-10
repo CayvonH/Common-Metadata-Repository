@@ -231,5 +231,3 @@
             (ring->pole-containment ring)
             (assoc ring :mbr (ring->mbr ring))
             (assoc ring :external-points (ring->external-points ring))))))
-
-

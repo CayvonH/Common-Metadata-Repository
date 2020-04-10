@@ -1,13 +1,14 @@
 (ns cmr.spatial.point
   "This namespace defines a Point type along with functions for working with points."
-  (:require [cmr.spatial.math :refer :all]
-            [primitive-math]
-            [clojure.pprint]
-            [pjstadig.assertions :as pj]
-            [cmr.spatial.derived :as d]
-            [cmr.common.util :as util]
-            [cmr.spatial.validation :as v]
-            [cmr.spatial.messages :as msg]))
+  (:require
+   [clojure.pprint]
+   [cmr.common.util :as util]
+   [cmr.spatial.derived :as d]
+   [cmr.spatial.math :refer :all]
+   [cmr.spatial.messages :as msg]
+   [cmr.spatial.validation :as v]
+   [pjstadig.assertions :as pj]
+   [primitive-math]))
 
 (primitive-math/use-primitive-operators)
 
@@ -419,9 +420,3 @@
     [point]
     (concat (validate-point-longitude point)
             (validate-point-latitude point))))
-
-
-
-
-
-

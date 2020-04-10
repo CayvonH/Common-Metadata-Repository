@@ -3,6 +3,7 @@
   (:require
    [camel-snake-kebab.core :as csk]
    [cmr.common.services.errors :as errors]
+   [cmr.indexer.data.concepts.spatial-converter :as spatial-converter]
    [cmr.spatial.derived :as d]
    [cmr.spatial.mbr :as mbr]
    [cmr.spatial.polygon :as poly]
@@ -72,6 +73,7 @@
             equiv]))))
 
 (defn- point->elastic-point
+  "Elasticsearch expects points in [lon, lat] order."
   [^Point point]
   [(.lon point) (.lat point)])
 
@@ -85,8 +87,8 @@
 (defmethod shape->elastic-doc Polygon
   [^Polygon polygon]
   {:type :polygon
-   :orientation :counterclockwise
-   :coordinates [(mapv point->elastic-point (:points (first (:rings polygon))))]})
+   :coordinates (into [] (for [ring (:rings polygon)]
+                           (mapv point->elastic-point (:points ring))))})
 
 (defmethod shape->elastic-doc Mbr
   [^Mbr mbr]
@@ -105,13 +107,14 @@
 (defn shapes->elastic-doc
   "Converts a spatial shapes into the nested elastic attributes"
   [shapes coordinate-system]
-  (let [derived-shapes (->> shapes
-                            (mapv (partial umm-s/set-coordinate-system coordinate-system))
-                            (mapv #(get special-cases % %))
-                            (mapv d/calculate-derived))
-        lrs (seq (remove nil? (mapv srl/shape->lr derived-shapes)))
+  (let [shapes (->> shapes
+                    (mapv #(spatial-converter/shape->geodetic-shape coordinate-system %))
+                    (mapv (partial umm-s/set-coordinate-system :geodetic))
+                    (mapv #(get special-cases % %))
+                    (mapv d/calculate-derived))
+        lrs (seq (remove nil? (mapv srl/shape->lr shapes)))
         ;; union mbrs to get one covering the whole area
-        mbr (reduce mbr/union (mapv srl/shape->mbr derived-shapes))
+        mbr (reduce mbr/union (mapv srl/shape->mbr shapes))
         ;; Choose the largest lr
         lr (when lrs
              (->> lrs

@@ -181,12 +181,36 @@
 
 (defn densify-line-segment
   "Returns points along the line segment for approximating the segment in another coordinate system.
-  Optionally accepts densification distance in degrees. Does no densification for vertical lines."
+  Optionally accepts densification distance in degrees. Does no densification for vertical lines
+  if densify-verical? is false (default)."
   ([ls]
    (densify-line-segment ls 0.1))
   ([^LineSegment ls ^double densification-dist]
-   (if (.vertical ls)
+   (densify-line-segment ls densification-dist false))
+  ([^LineSegment ls ^double densification-dist densify-vertical?]
+   (cond
+     (and (.vertical ls)
+          densify-vertical?)
+     (let [^Point p1 (.point1 ls)
+           ^Point p2 (.point2 ls)
+           lat1 (.lat p1)
+           lat2 (.lat p2)
+           lon (.lon p1)
+           dense-direction (if (> (.lat p1) (.lat p2))
+                             (* -1.0 densification-dist)
+                             densification-dist)
+           num-points (int (Math/floor (/ (distance ls)
+                                          densification-dist)))
+           points (mapv #(p/point lon (+ (.lat p1) (* dense-direction (double %))) false)
+                        (range (inc num-points)))]
+       (if (not= (last points) p2)
+         (conj points p2)
+         points))
+
+     (.vertical ls)
      [(:point1 ls) (:point2 ls)]
+
+     :else
      (let [^Point p1 (.point1 ls)
            ^Point p2 (.point2 ls)
            lon1 (.lon p1)

@@ -56,7 +56,7 @@
           densification-dist 5.0
           original-dist (s/distance ls)
           {:keys [point1 point2]} ls
-          points (s/densify-line-segment ls densification-dist)]
+          points (s/densify-line-segment ls densification-dist true)]
       (and
         ;; every new point should be on the line segment
         (every? (partial s/point-on-segment? ls) points)
@@ -65,22 +65,23 @@
         (= point1 (first points))
         (= point2 (last points))
 
+        ;; vertical lines won't be densified unless flag is set
         (or (and (s/vertical? ls)
-                 (= (count points) 2)) ; vertical lines won't be densified
+                 (= (count (s/densify-line-segment ls densification-dist)) 2))
+            (not (s/vertical? ls)))
 
-            ;; Check densification distances
-            (let [distances (map (partial apply s/distance) (partition 2 1 points))
-                  distance-sum (apply clojure.core/+ distances)]
-              (and
-                ;; The sum of the distances should equal the original distance
-                (approx= distance-sum original-dist)
+        (let [distances (map (partial apply s/distance) (partition 2 1 points))
+              distance-sum (apply clojure.core/+ distances)]
+          (and
+            ;; The sum of the distances should equal the original distance
+            (approx= distance-sum original-dist)
 
-                ;; distance between each should be approximately the densification distance
-                ;; except for at the last point
-                (every? (partial approx= densification-dist) (drop-last distances))
+            ;; distance between each should be approximately the densification distance
+            ;; except for at the last point
+            (every? (partial approx= densification-dist) (drop-last distances))
 
-                ;; The last distance should be less than or equal to the densification distance
-                (<= ^double (last distances) densification-dist))))))))
+            ;; The last distance should be less than or equal to the densification distance
+            (<= ^double (last distances) densification-dist)))))))
 
 (defspec line-segment-intersection-spec {:times 1000 :printer-fn sgen/print-failed-line-segments}
   (for-all [ls1 sgen/line-segments
