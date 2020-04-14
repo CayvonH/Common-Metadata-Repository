@@ -68,8 +68,14 @@
         wide-north (make-coll :geodetic "wide-north" (polygon -70 20, 70 20, 70 30, -70 30, -70 20))
         wide-south (make-coll :geodetic "wide-south" (polygon -70 -30, 70 -30, 70 -20, -70 -20, -70 -30))
         across-am-poly (make-coll :geodetic "across-am-poly" (polygon 170 35, -175 35, -170 45, 175 45, 170 35))
-        on-np (make-coll :geodetic "on-np" (polygon 45 85, 135 85, -135 85, -45 85, 45 85))
-        on-sp (make-coll :geodetic "on-sp" (polygon -45 -85, -135 -85, 135 -85, 45 -85, -45 -85))
+        ;; TODO - on-sp and on-np are of type polygon but are actually just lines.
+        ;; elasticsearch will complain that these polygons are self-intersecting.
+        ;; Will change these polygons to not intersect themselves. We will need
+        ;; to add validation to disallow polygons that intersect themselves.
+        ;on-np (make-coll :geodetic "on-np" (polygon 45 85, 135 85, -135 85, -45 85, 45 85))
+        ;on-sp (make-coll :geodetic "on-sp" (polygon -45 -85, -135 -85, 135 -85, 45 -85, -45 -85))
+        on-np (make-coll :geodetic "on-np" (polygon 45 85, 135 90, -135 89, -45 85, 45 85))
+        on-sp (make-coll :geodetic "on-sp" (polygon -45 -85, -135 -90, 135 -89, 45 -85, -45 -85))
         normal-poly (make-coll :geodetic "normal-poly" (polygon -20 -10, -10 -10, -10 10, -20 10, -20 -10))
 
         ;; polygon with holes
@@ -110,6 +116,7 @@
                           :page-size 50})
                  matches? (d/refs-match? items found)]
              (when-not matches?
+               (println "ls-ords:" (pr-str ords))
                (println "Expected:" (->> items (map :entry-title) sort pr-str))
                (println "Actual:" (->> found :refs (map :name) sort pr-str)))
              matches?)
@@ -121,18 +128,32 @@
            [-0.37,-14.07,4.75,1.27,25.13,-15.51] [whole-world polygon-with-holes
                                                   polygon-with-holes-cart normal-line-cart
                                                   normal-line normal-poly-cart]
+
            ;; across antimeridian
-           [-167.85,-9.08,171.69,43.24] [whole-world across-am-br across-am-poly very-wide-cart
-                                         along-am-line]
+           ;[-167.85,-9.08,171.69,43.24] [whole-world across-am-br across-am-poly very-wide-cart
+           ;                              along-am-line]
+           ;; across-am-br does not intersect when drawn on map. Extend line lon to -171.85
+           ;; to intersect.
+           ;; Removed:
+           ;; along-am-line - These lines do not intersect.
+           ;; across-am-poly - The line does not intersect this polygon.
+           [-171.85,-9.08,171.69,43.24] [whole-world across-am-br very-wide-cart]
 
            ;; across north pole
-           [0 85, 180 85] [whole-world north-pole on-np touches-np along-am-line]
+           ;; Removed:
+           ;; along-am-line - Line points do are not inclusive for intersections.
+           ;;  points need to actually cross for them to be considered intersecting.
+           ;;  added test case below for along-am-line
+           [0 85, 180 90] [whole-world north-pole on-np touches-np very-tall-cart]
+
+           ;; along-am-line
+           [180 45, 180 86] [whole-world along-am-line across-am-poly]
 
            ;; across north pole where cartesian polygon touches it
-           [-155 85, 25 85] [whole-world north-pole on-np very-tall-cart]
+           [-155 85, 25 85] [whole-world north-pole on-np touches-np very-tall-cart]
 
            ;; across south pole
-           [0 -85, 180 -85] [whole-world south-pole on-sp]
+           [0 -85, 180 -85] [whole-world south-pole on-sp touches-sp very-tall-cart]
 
            ;; across north pole where cartesian polygon touches it
            [-155 -85, 25 -85] [whole-world south-pole on-sp touches-sp very-tall-cart]))
@@ -143,6 +164,7 @@
                                                       :page-size 50})
                  matches? (d/refs-match? items found)]
              (when-not matches?
+               (println "points-ords:" (pr-str lon_lat))
                (println "Expected:" (->> items (map :entry-title) sort pr-str))
                (println "Actual:" (->> found :refs (map :name) sort pr-str)))
              matches?)

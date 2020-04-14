@@ -82,23 +82,41 @@
 (defmethod shape->elastic-doc Point
   [^Point point]
   {:type :point
+   :distance_error_pct 0
    :coordinates (point->elastic-point point)})
 
 (defmethod shape->elastic-doc Polygon
   [^Polygon polygon]
   {:type :polygon
+   :orientation :counterclockwise
+   :distance_error_pct 0
    :coordinates (into [] (for [ring (:rings polygon)]
                            (mapv point->elastic-point (:points ring))))})
 
 (defmethod shape->elastic-doc Mbr
   [^Mbr mbr]
-  {:type :envelope
-   :coordinates [[(.west mbr) (.north mbr)] [(.east mbr) (.south mbr)]]})
+  (let [west (.west mbr)
+        north (.north mbr)
+        south (.south mbr)
+        east (.east mbr)]
+    ;; elastic envelopes do not have dateline support. shape crosses dateline,
+    ;; split into two geometries.
+    (if (> west east)
+      [{:type :envelope
+        :coordinates [[-180 north] [east south]]
+        :distance_error_pct 0}
+       {:type :envelope
+        :coordinates [[west north] [180 south]]
+        :distance_error_pct 0}]
+      {:type :envelope
+       :coordinates [[west north] [east south]]
+       :distance_error_pct 0})))
 
 (defmethod shape->elastic-doc LineString
   [^LineString line-string]
   {:type :linestring
-   :coordinates (mapv point->elastic-point (:points line-string))})
+   :coordinates (mapv point->elastic-point (:points line-string))
+   :distance_error_pct 0})
 
 (defmethod shape->elastic-doc :default
   [unknown]
@@ -108,10 +126,11 @@
   "Converts a spatial shapes into the nested elastic attributes"
   [shapes coordinate-system]
   (let [shapes (->> shapes
-                    (mapv #(spatial-converter/shape->geodetic-shape coordinate-system %))
-                    (mapv (partial umm-s/set-coordinate-system :geodetic))
+                    (mapv (partial umm-s/set-coordinate-system coordinate-system))
                     (mapv #(get special-cases % %))
                     (mapv d/calculate-derived))
+
+        ords-info-map (srl/shapes->ords-info-map shapes)
         lrs (seq (remove nil? (mapv srl/shape->lr shapes)))
         ;; union mbrs to get one covering the whole area
         mbr (reduce mbr/union (mapv srl/shape->mbr shapes))
@@ -124,7 +143,15 @@
         lr-info-map (when lr
                       (mbr->elastic-attribs
                         "lr"  (mbr/round-to-float-map lr false) (mbr/crosses-antimeridian? lr)))]
-    (merge {:geometries (mapv shape->elastic-doc shapes)}
+    (merge ords-info-map
+           {:geometries
+            ;; flatten for things like envelopes that end up
+            ;; creating two geometries when split accross the dateline.
+            (flatten
+             (mapv (fn [shape]
+                     (shape->elastic-doc
+                      (spatial-converter/shape->geodetic-shape coordinate-system shape)))
+                   shapes))}
            ;; The bounding rectangles are converted from double to float for storage in Elasticsearch
            ;; This takes up less space in the fielddata cache when using a numeric range filter with
            ;; fielddata execution mode. During conversion from double to float any loss in precision

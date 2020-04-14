@@ -1,5 +1,5 @@
 (ns cmr.indexer.data.concepts.spatial-converter
-  "Contains functions cartesian spatial shape to densified geodetic ones."
+  "Contains functions to transform cartesian spatial shapes to densified geodetic ones."
   (:require
    [cmr.common.services.errors :as errors]
    [cmr.spatial.line-segment :as line-segment]
@@ -16,25 +16,17 @@
 (def ^:private ^Double densification-dist
   0.1)
 
-(defn- adjust-pole
-  "Geodetic polygon cannot be on pole."
-  [^Point p]
-  (letfn [(adjust-point-lat [adjusted-lat]
-            (point/point (.lon p) adjusted-lat (.geodetic_equality p)))]
-    (case (int (.lat p))
-      90 (adjust-point-lat 89.9999)
-      -90 (adjust-point-lat -89.9999)
-      p)))
-
 (defn- points->densified-points
   "Take two or more points treat them as line segments and densify them."
   [points]
+  ;; We don't need to worry about densifying lines across the dateline since
+  ;; CMR does not allow cartesian polygons to cross the dateline.
   (mapcat (fn [idx]
             (let [densified-points
                   (line-segment/densify-line-segment
                    (line-segment/line-segment
-                    (adjust-pole (get points idx))
-                    (adjust-pole (get points (+ idx 1))))
+                    (get points idx)
+                    (get points (+ idx 1)))
                    densification-dist
                    true)]
               ;; Remove overlapping points

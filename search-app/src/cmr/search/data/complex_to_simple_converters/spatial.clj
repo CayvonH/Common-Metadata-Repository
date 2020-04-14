@@ -189,12 +189,14 @@
              (keys crossings-map))))))
 
 (defn- point->elastic-point
+  "point to vector of [lon, lat]"
   [^Point point]
   [(.lon point) (.lat point)])
 
 (defmulti shape->geo-condition class)
 
-(defmethod shape->geo-condition Point
+(defn- point-cond
+  "Create a point condition from the given point."
   [^Point point]
   (qm/map->GeoshapeCondition
    {:type :point
@@ -202,22 +204,37 @@
     :coordinates (point->elastic-point point)
     :relation :intersects}))
 
+(defn- envelope-cond
+  "Create an envelope condition with the given extents."
+  [west north east south]
+  (qm/map->GeoshapeCondition
+   {:type :envelope
+    :field :geometries
+    :coordinates [[west north] [east south]]
+    :relation :intersects}))
+
+(defmethod shape->geo-condition Point
+  [^Point point]
+  ;; Point is on antimeridian. and-cond for -180 and 180.
+  (if (= 180 (-> point .lon int Math/abs))
+    (gc/or-conds
+     [(point-cond point)
+      (point-cond (update point :lon (fn [& args] (* -1 (.lon point)))))])
+    (point-cond point)))
+
 (defmethod shape->geo-condition Polygon
   [^Polygon polygon]
   (qm/map->GeoshapeCondition
    {:type :polygon
     :field :geometries
+    :orientation :counterclockwise
     :coordinates (into [] (for [ring (:rings polygon)]
                             (mapv point->elastic-point (:points ring))))
     :relation :intersects}))
 
 (defmethod shape->geo-condition Mbr
   [^Mbr mbr]
-  (qm/map->GeoshapeCondition
-   {:type :envelope
-    :field :geometries
-    :coordinates [[(.west mbr) (.north mbr)] [(.east mbr) (.south mbr)]]
-    :relation :intersects}))
+  (envelope-cond (.west mbr) (.north mbr) (.east mbr) (.south mbr)))
 
 (defmethod shape->geo-condition LineString
   [^LineString line-string]
@@ -231,18 +248,29 @@
   [unknown]
   (errors/internal-error! (str "Do not know how to create geo condition for geometry [" (type unknown) "]")))
 
+(defn- geo-condition
+  "Create a geo condition from the supplied CMR spatial lib shape."
+  [shape]
+  (gc/or-conds
+   (remove nil?
+           [(shape->geo-condition shape)
+            ;; If the shape contains a pole we will force elasticsearch to
+            ;; treat all longitudes at the pole as equivalent by drawing a
+            ;; a bounding box across the -180, 180 longitude range.
+            (when (sr/contains-north-pole? shape)
+              (envelope-cond -180 90 180 90))
+            (when (sr/contains-south-pole? shape)
+              (envelope-cond -180 -90 180 -90))])))
+
 (extend-protocol c2s/ComplexQueryToSimple
   cmr.search.models.query.SpatialCondition
   (c2s/reduce-query-condition
     [{:keys [shape]} context]
-    (let [spatial-geo-cond (shape->geo-condition shape)
-          shape (d/calculate-derived shape)
+    (let [shape (d/calculate-derived shape)
+          spatial-geo-cond (geo-condition shape)
           orbital-cond (when (= :granule (:query-concept-type context))
                          (orbital-condition context shape))
-          mbr-cond (br->cond "mbr" (srl/shape->mbr shape))
-          lr-cond (br->cond "lr" (srl/shape->lr shape))
-          spatial-cond (gc/and-conds [mbr-cond (gc/or-conds [lr-cond spatial-geo-cond])])]
-          ;spatial-cond spatial-geo-cond]
+          spatial-cond spatial-geo-cond]
       (if orbital-cond
         (gc/or-conds [spatial-cond orbital-cond])
         spatial-cond))))
